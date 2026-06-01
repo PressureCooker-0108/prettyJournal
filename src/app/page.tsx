@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useOptimistic, startTransition } from "react";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -34,6 +34,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   const { isSignedIn, isLoaded: isAuthLoaded } = useUser();
 
@@ -41,6 +43,70 @@ export default function Home() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [entries, setEntries] = useState<Record<string, JournalEntry>>({});
   const [isLoadingData, setIsLoadingData] = useState(true);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
+
+  // React 19 useOptimistic configuration for habits checklist/dots
+  const [optimisticHabits, setOptimisticHabits] = useOptimistic(
+    habits,
+    (
+      state,
+      action:
+        | { type: "toggle"; habitId: string; date: string; checked: boolean }
+        | { type: "delete"; habitId: string }
+        | { type: "add"; habit: Habit }
+    ) => {
+      if (action.type === "toggle") {
+        return state.map((h) => {
+          if (h.id === action.habitId) {
+            const completedDates = [...h.completedDates];
+            return {
+              ...h,
+              completedDates: action.checked
+                ? [...completedDates, action.date]
+                : completedDates.filter((d) => d !== action.date),
+            };
+          }
+          return h;
+        });
+      } else if (action.type === "delete") {
+        return state.filter((h) => h.id !== action.habitId);
+      } else if (action.type === "add") {
+        return [...state, action.habit];
+      }
+      return state;
+    }
+  );
+
+  // React 19 useOptimistic configuration for grid cells mood colors
+  const [optimisticEntries, setOptimisticEntries] = useOptimistic(
+    entries,
+    (
+      state,
+      action:
+        | { type: "upsert"; date: string; mood: "cream" | "off-white" | "pink"; content: string }
+        | { type: "delete"; date: string }
+    ) => {
+      if (action.type === "upsert") {
+        return {
+          ...state,
+          [action.date]: {
+            id: state[action.date]?.id || "temp-id",
+            userId: "current-user",
+            date: action.date,
+            mood: action.mood,
+            content: action.content,
+          },
+        };
+      } else if (action.type === "delete") {
+        const next = { ...state };
+        delete next[action.date];
+        return next;
+      }
+      return state;
+    }
+  );
 
   // Calendar Date State (tracks the month currently viewed)
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -60,6 +126,14 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "">("");
+
+  // Toast automatic dismissal
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
 
   // Load database data if authenticated
   useEffect(() => {
@@ -187,30 +261,49 @@ export default function Home() {
     if (newHabitName.trim()) {
       const name = newHabitName.trim();
       setNewHabitName("");
-      try {
-        const created = await addHabitAction(name);
-        setHabits((prev) => [...prev, created as Habit]);
-      } catch (err) {
-        console.error("Error adding habit:", err);
-      }
+      const tempId = `temp-${Date.now()}`;
+      const tempHabit: Habit = { id: tempId, userId: "current-user", name, completedDates: [] };
+      
+      startTransition(async () => {
+        setOptimisticHabits({ type: "add", habit: tempHabit });
+        try {
+          const res = await addHabitAction(name);
+          if (res.success && res.data) {
+            setHabits((prev) => [...prev, res.data as Habit]);
+          } else {
+            setToast({ message: res.error || "Failed to add habit", type: "error" });
+          }
+        } catch (err) {
+          console.error("Error adding habit:", err);
+          setToast({ message: "Network error adding habit", type: "error" });
+        }
+      });
     }
   };
 
   // Delete Habit Handler
   const handleDeleteHabit = async (habitId: string) => {
     if (!isSignedIn) return;
-    try {
-      await deleteHabitAction(habitId);
-      setHabits((prev) => prev.filter((h) => h.id !== habitId));
-    } catch (err) {
-      console.error("Error deleting habit:", err);
-    }
+    startTransition(async () => {
+      setOptimisticHabits({ type: "delete", habitId });
+      try {
+        const res = await deleteHabitAction(habitId);
+        if (res.success) {
+          setHabits((prev) => prev.filter((h) => h.id !== habitId));
+        } else {
+          setToast({ message: res.error || "Failed to delete habit", type: "error" });
+        }
+      } catch (err) {
+        console.error("Error deleting habit:", err);
+        setToast({ message: "Network error deleting habit", type: "error" });
+      }
+    });
   };
 
   // Open Drawer Handler for a date
   const handleOpenDrawer = (dateStr: string) => {
     setSelectedDateStr(dateStr);
-    const existingEntry = entries[dateStr];
+    const existingEntry = optimisticEntries[dateStr];
     
     if (existingEntry) {
       setDraftContent(existingEntry.content);
@@ -225,9 +318,9 @@ export default function Home() {
   };
 
   // Check if current draft exists as a permanent entry in global state
-  const isExistingEntry = !!entries[selectedDateStr];
+  const isExistingEntry = !!optimisticEntries[selectedDateStr];
 
-  // Helper for real-time debounced saving (existing entries)
+  // Helper for real-time debounced saving (existing entries) - 1500ms debounce
   const triggerAutoSave = (content: string, mood: "cream" | "off-white" | "pink") => {
     if (!isExistingEntry || !isSignedIn) return;
 
@@ -236,48 +329,60 @@ export default function Home() {
     }
 
     setSaveStatus("saving");
-    debounceTimeoutRef.current = setTimeout(async () => {
-      try {
-        await upsertJournalEntry(selectedDateStr, mood, content);
-        setSaveStatus("saved");
-      } catch (e) {
-        console.error("Auto-save failed:", e);
-        setSaveStatus("");
-      }
-    }, 500); // 500ms debounce
+    debounceTimeoutRef.current = setTimeout(() => {
+      startTransition(async () => {
+        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content });
+        try {
+          const res = await upsertJournalEntry(selectedDateStr, mood, content);
+          if (res.success && res.data) {
+            setEntries((prev) => ({
+              ...prev,
+              [selectedDateStr]: {
+                id: res.data.id,
+                userId: res.data.userId,
+                date: res.data.date,
+                mood: res.data.mood as "cream" | "off-white" | "pink",
+                content: res.data.content
+              }
+            }));
+            setSaveStatus("saved");
+          } else {
+            setSaveStatus("");
+            setToast({ message: res.error || "Failed to auto-save entry", type: "error" });
+          }
+        } catch (e) {
+          console.error("Auto-save failed:", e);
+          setSaveStatus("");
+          setToast({ message: "Network error: failed to auto-save", type: "error" });
+        }
+      });
+    }, 1500); // 1500ms debounce
   };
 
-  // Habit toggling inside Drawer (secured and database integrated)
+  // Habit toggling inside Drawer (secured and database integrated with useOptimistic)
   const handleToggleHabitInDrawer = async (habitId: string, checked: boolean) => {
     if (!isSignedIn) return;
 
-    // Optimistically update habits local state
-    setHabits((prev) =>
-      prev.map((h) => {
-        if (h.id === habitId) {
-          const completedDates = [...h.completedDates];
-          return {
-            ...h,
-            completedDates: checked
-              ? [...completedDates, selectedDateStr]
-              : completedDates.filter((d) => d !== selectedDateStr)
-          };
-        }
-        return h;
-      })
-    );
-
     setSaveStatus("saving");
-    try {
-      await toggleHabitCompletionAction(habitId, selectedDateStr, checked);
-      setSaveStatus("saved");
-    } catch (err) {
-      console.error("Failed to toggle habit in database:", err);
-      setSaveStatus("");
-      // Revert local state on error
-      const refreshedHabits = await getHabits();
-      setHabits(refreshedHabits);
-    }
+    startTransition(async () => {
+      setOptimisticHabits({ type: "toggle", habitId, date: selectedDateStr, checked });
+      try {
+        const res = await toggleHabitCompletionAction(habitId, selectedDateStr, checked);
+        if (res.success && res.data) {
+          setHabits((prev) =>
+            prev.map((h) => (h.id === habitId ? (res.data as Habit) : h))
+          );
+          setSaveStatus("saved");
+        } else {
+          setSaveStatus("");
+          setToast({ message: res.error || "Failed to toggle habit", type: "error" });
+        }
+      } catch (err) {
+        console.error("Failed to toggle habit:", err);
+        setSaveStatus("");
+        setToast({ message: "Network error: toggle failed", type: "error" });
+      }
+    });
   };
 
   // Mood selection inside Drawer
@@ -285,16 +390,10 @@ export default function Home() {
     setDraftMood(mood);
     
     if (isExistingEntry && isSignedIn) {
-      // Optimistically update local entries state
-      setEntries((prev) => ({
-        ...prev,
-        [selectedDateStr]: {
-          ...prev[selectedDateStr],
-          mood
-        }
-      }));
-      
-      triggerAutoSave(draftContent, mood);
+      startTransition(async () => {
+        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: draftContent });
+        triggerAutoSave(draftContent, mood);
+      });
     }
   };
 
@@ -304,55 +403,72 @@ export default function Home() {
     setDraftContent(val);
     
     if (isExistingEntry && isSignedIn) {
-      // Optimistically update local entries state
-      setEntries((prev) => ({
-        ...prev,
-        [selectedDateStr]: {
-          ...prev[selectedDateStr],
-          content: val
-        }
-      }));
-      
-      triggerAutoSave(val, draftMood);
+      startTransition(async () => {
+        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: val });
+        triggerAutoSave(val, draftMood);
+      });
     }
   };
 
   // Explicit Save for NEW entries
   const handleSaveNewEntry = async () => {
     if (!isSignedIn) return;
-    try {
-      const created = await upsertJournalEntry(selectedDateStr, draftMood, draftContent);
-      setEntries((prev) => ({
-        ...prev,
-        [selectedDateStr]: {
-          id: created.id,
-          userId: created.userId,
-          date: created.date,
-          mood: created.mood as "cream" | "off-white" | "pink",
-          content: created.content
+    setSaveStatus("saving");
+    startTransition(async () => {
+      setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: draftContent });
+      try {
+        const res = await upsertJournalEntry(selectedDateStr, draftMood, draftContent);
+        if (res.success && res.data) {
+          setEntries((prev) => ({
+            ...prev,
+            [selectedDateStr]: {
+              id: res.data.id,
+              userId: res.data.userId,
+              date: res.data.date,
+              mood: res.data.mood as "cream" | "off-white" | "pink",
+              content: res.data.content
+            }
+          }));
+          setSaveStatus("saved");
+          setIsDrawerOpen(false);
+        } else {
+          setSaveStatus("");
+          setToast({ message: res.error || "Failed to save entry", type: "error" });
         }
-      }));
-      setSaveStatus("saved");
-      setIsDrawerOpen(false);
-    } catch (err) {
-      console.error("Error creating entry in Neon:", err);
-    }
+      } catch (err) {
+        console.error("Error creating entry in Neon:", err);
+        setSaveStatus("");
+        setToast({ message: "Network error: failed to save entry", type: "error" });
+      }
+    });
   };
 
   // Reset Entry to Empty (deletes from database)
   const handleResetToEmpty = async () => {
     if (!isSignedIn) return;
-    try {
-      await resetJournalEntry(selectedDateStr);
-      setEntries((prev) => {
-        const next = { ...prev };
-        delete next[selectedDateStr];
-        return next;
-      });
-      setIsDrawerOpen(false);
-    } catch (err) {
-      console.error("Error deleting entry:", err);
-    }
+    setSaveStatus("saving");
+    startTransition(async () => {
+      setOptimisticEntries({ type: "delete", date: selectedDateStr });
+      try {
+        const res = await resetJournalEntry(selectedDateStr);
+        if (res.success) {
+          setEntries((prev) => {
+            const next = { ...prev };
+            delete next[selectedDateStr];
+            return next;
+          });
+          setSaveStatus("saved");
+          setIsDrawerOpen(false);
+        } else {
+          setSaveStatus("");
+          setToast({ message: res.error || "Failed to reset entry", type: "error" });
+        }
+      } catch (err) {
+        console.error("Error deleting entry:", err);
+        setSaveStatus("");
+        setToast({ message: "Network error: failed to delete entry", type: "error" });
+      }
+    });
   };
 
   // Helper to format date labels for display
@@ -466,12 +582,12 @@ export default function Home() {
                 <li className="text-xs text-[#706661]/50 italic font-sans py-2 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5" /> Sign in to manage habits.
                 </li>
-              ) : habits.length === 0 ? (
+              ) : optimisticHabits.length === 0 ? (
                 <li className="text-xs text-[#706661]/60 italic font-sans py-2">
                   No habits added yet.
                 </li>
               ) : (
-                habits.map((habit, index) => (
+                optimisticHabits.map((habit, index) => (
                   <li 
                     key={habit.id} 
                     className="flex items-center justify-between py-1.5 px-3 bg-[#F5F2EB] border border-[#706661]/10 rounded-md text-sm group animate-fade-in"
@@ -571,7 +687,7 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-7 gap-1.5 md:gap-3 flex-1 auto-rows-fr">
             {cells.map((cell, index) => {
-              const entry = entries[cell.dateStr];
+              const entry = optimisticEntries[cell.dateStr];
               
               // Faded style for surrounding months
               if (!cell.isActive) {
@@ -617,7 +733,7 @@ export default function Home() {
 
                   {/* Micro-Dot Matrix for Habits completed dates */}
                   <div className="flex flex-wrap gap-[3px] mt-auto w-full pt-1.5">
-                    {habits.map((habit) => {
+                    {optimisticHabits.map((habit) => {
                       const isCompleted = habit.completedDates.includes(cell.dateStr);
                       return (
                         <div
@@ -676,22 +792,26 @@ export default function Home() {
             /* AUTHENTICATED USER DRAWER CONTROLS */
             <>
               <SheetHeader className="p-0 pb-4 border-b border-[#706661]/10 gap-1">
-                <SheetTitle className="text-xl font-serif font-semibold text-[#2A2421]">
-                  {isExistingEntry ? "Journal Entry" : "New Journal Entry"}
-                </SheetTitle>
+                <div className="flex justify-between items-start w-full">
+                  <SheetTitle className="text-xl font-serif font-semibold text-[#2A2421]">
+                    {isExistingEntry ? "Journal Entry" : "New Journal Entry"}
+                  </SheetTitle>
+                  
+                  {/* Phase 2: Debouncer Status Indicator in the corner of the drawer */}
+                  {saveStatus && (
+                    <div className="text-[11px] text-[#706661]/80 font-serif flex items-center gap-1 select-none animate-fade-in bg-[#F5F2EB] px-2.5 py-1 rounded-md border border-[#706661]/10">
+                      {saveStatus === "saving" ? (
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
+                      ) : (
+                        <Check className="w-3.5 h-3.5 text-green-700 shrink-0 inline" />
+                      )}
+                      {saveStatus === "saving" ? "Saving..." : "Changes saved"}
+                    </div>
+                  )}
+                </div>
                 <SheetDescription className="text-xs text-[#706661]">
                   {formatDateLabel(selectedDateStr)}
                 </SheetDescription>
-                {saveStatus && (
-                  <div className="text-[10px] text-[#706661]/70 font-mono flex items-center gap-1 mt-1 animate-fade-in">
-                    {saveStatus === "saving" ? (
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#706661] animate-ping"></span>
-                    ) : (
-                      <Check className="w-3.5 h-3.5 text-green-700 inline" />
-                    )}
-                    {saveStatus === "saving" ? "Auto-saving..." : "Saved to Postgres Database"}
-                  </div>
-                )}
               </SheetHeader>
 
               {/* SECTION 1: HABIT TRACKER CHECKLIST */}
@@ -699,13 +819,13 @@ export default function Home() {
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
                   Daily Habits Checklist
                 </h3>
-                {habits.length === 0 ? (
+                {optimisticHabits.length === 0 ? (
                   <p className="text-xs text-[#706661]/50 italic py-1">
                     Add habits in the sidebar to track them here.
                   </p>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
-                    {habits.map((habit) => {
+                    {optimisticHabits.map((habit) => {
                       const isChecked = habit.completedDates.includes(selectedDateStr);
                       return (
                         <label 
@@ -808,6 +928,20 @@ export default function Home() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Floating minimalist soft toast alert container for revert notifications */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 bg-[#2A2421] text-[#FDFBF7] py-3.5 px-5 rounded-lg shadow-xl text-sm flex items-center gap-3.5 border border-[#706661]/25 animate-fade-in z-50 font-sans">
+          <div className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+          <span className="font-medium text-xs tracking-wide">{toast.message}</span>
+          <button 
+            onClick={() => setToast(null)}
+            className="text-xs text-[#FCE7E9] hover:underline font-semibold cursor-pointer border-l border-[#706661]/30 pl-3.5 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </div>
   );
 }
