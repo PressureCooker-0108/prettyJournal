@@ -47,7 +47,7 @@ export async function deriveJournalKey(passphrase: string, saltStr: string): Pro
     {
       name: "PBKDF2",
       salt: saltBytes,
-      iterations: 100000,
+      iterations: 1000,
       hash: "SHA-256",
     },
     baseKey,

@@ -54,6 +54,20 @@ export function EncryptionProvider({ children }: { children: React.ReactNode }) 
     }
   }, [isLoaded, isSignedIn, user]);
 
+  // Load key from sessionStorage on mount if already derived in this tab session
+  useEffect(() => {
+    if (isLoaded && isSignedIn && user) {
+      const cachedKeyHex = sessionStorage.getItem(`e2ee_key_${user.id}`);
+      if (cachedKeyHex && encryptionStatus === "enabled" && !cryptoKey) {
+        // We can unlock using the cached passphrase to recreate the key instantly
+        const cachedPass = sessionStorage.getItem(`e2ee_pass_${user.id}`);
+        if (cachedPass) {
+          unlockVault(cachedPass);
+        }
+      }
+    }
+  }, [isLoaded, isSignedIn, user, encryptionStatus]);
+
   const unlockVault = async (passphrase: string): Promise<boolean> => {
     if (!user || !user.id) return false;
     setDeriving(true);
@@ -62,6 +76,8 @@ export function EncryptionProvider({ children }: { children: React.ReactNode }) 
       const salt = await getSaltFromUserId(user.id);
       const key = await deriveJournalKey(passphrase, salt);
       setCryptoKey(key);
+      sessionStorage.setItem(`e2ee_key_${user.id}`, "derived");
+      sessionStorage.setItem(`e2ee_pass_${user.id}`, passphrase);
       setDeriving(false);
       return true;
     } catch (err: any) {
@@ -83,6 +99,8 @@ export function EncryptionProvider({ children }: { children: React.ReactNode }) 
   const disableEncryption = () => {
     if (user) {
       localStorage.setItem(`e2ee_status_${user.id}`, "disabled");
+      sessionStorage.removeItem(`e2ee_key_${user.id}`);
+      sessionStorage.removeItem(`e2ee_pass_${user.id}`);
       setEncryptionStatus("disabled");
       setCryptoKey(null);
       setErrorMsg(null);
