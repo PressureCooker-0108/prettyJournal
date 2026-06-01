@@ -1,65 +1,615 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Plus, 
+  Trash2, 
+  RotateCcw,
+  BookOpen,
+  Sparkles,
+  Check
+} from "lucide-react";
+import { useJournalData } from "@/hooks/useJournalData";
+import { Habit, JournalEntry } from "@/types";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 
 export default function Home() {
+  const {
+    habits,
+    entries,
+    isHydrated,
+    addHabit,
+    deleteHabit,
+    saveEntry,
+    resetEntry
+  } = useJournalData();
+
+  // Calendar Date State (tracks the month currently viewed)
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  
+  // Sidebar State for new habits
+  const [newHabitName, setNewHabitName] = useState("");
+
+  // Editor Drawer State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedDateStr, setSelectedDateStr] = useState<string>("");
+  
+  // Drawer draft state (used only for new entries before clicking "Save")
+  const [draftContent, setDraftContent] = useState("");
+  const [draftMood, setDraftMood] = useState<"cream" | "off-white" | "pink">("cream");
+  const [draftHabitsCompleted, setDraftHabitsCompleted] = useState<string[]>([]);
+  
+  // Ref for auto-resizing textarea
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "">("");
+
+  // Auto-resize the textarea when content changes
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [draftContent, isDrawerOpen]);
+
+  // Handle Loading State to prevent SSR Hydration Mismatch
+  if (!isHydrated) {
+    return (
+      <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center flex-col gap-3">
+        <Sparkles className="w-8 h-8 text-[#706661]/40 animate-spin" />
+        <div className="text-[#706661] font-serif text-lg animate-pulse">
+          Opening your journal...
+        </div>
+      </div>
+    );
+  }
+
+  // --- CALENDAR GRID CALCULATIONS (Monday-aligned) ---
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const monthLabel = `${monthNames[month]} ${year}`;
+  
+  // Total days in the current month
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  
+  // 1st of month index (0 = Sun, 1 = Mon, ..., 6 = Sat)
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  
+  // Calculate offset to align by Monday:
+  // Mon = 0, Tue = 1, Wed = 2, Thu = 3, Fri = 4, Sat = 5, Sun = 6
+  const startOffset = (firstDayOfWeek + 6) % 7;
+  
+  // Previous month details for filling leading cells
+  const prevMonthDate = new Date(year, month, 0);
+  const prevMonthTotalDays = prevMonthDate.getDate();
+  
+  // Assemble cells
+  const cells: { dateStr: string; dayNum: number; isActive: boolean }[] = [];
+  
+  // Leading cells (Previous Month)
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const dayNum = prevMonthTotalDays - i;
+    const prevMonth = month === 0 ? 11 : month - 1;
+    const prevYear = month === 0 ? year - 1 : year;
+    const dateStr = `${prevYear}-${String(prevMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+    cells.push({ dateStr, dayNum, isActive: false });
+  }
+
+  // Active cells (Current Month)
+  for (let i = 1; i <= totalDays; i++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
+    cells.push({ dateStr, dayNum: i, isActive: true });
+  }
+
+  // Trailing cells (Next Month) to fill grid rows of 7
+  const totalGridCells = Math.ceil(cells.length / 7) * 7;
+  const trailingCount = totalGridCells - cells.length;
+  for (let i = 1; i <= trailingCount; i++) {
+    const nextMonth = month === 11 ? 0 : month + 1;
+    const nextYear = month === 11 ? year + 1 : year;
+    const dateStr = `${nextYear}-${String(nextMonth + 1).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
+    cells.push({ dateStr, dayNum: i, isActive: false });
+  }
+
+  // Navigation Handlers
+  const handlePrevMonth = () => {
+    setCurrentDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(new Date(year, month + 1, 1));
+  };
+
+  // Add Custom Habit Handler
+  const handleAddHabitSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newHabitName.trim()) {
+      addHabit(newHabitName);
+      setNewHabitName("");
+    }
+  };
+
+  // Open Drawer Handler for a date
+  const handleOpenDrawer = (dateStr: string) => {
+    setSelectedDateStr(dateStr);
+    const existingEntry = entries[dateStr];
+    
+    if (existingEntry) {
+      setDraftContent(existingEntry.content);
+      setDraftMood(existingEntry.mood);
+      setDraftHabitsCompleted(existingEntry.habitsCompleted);
+    } else {
+      setDraftContent("");
+      setDraftMood("cream");
+      setDraftHabitsCompleted([]);
+    }
+    
+    setSaveStatus("");
+    setIsDrawerOpen(true);
+  };
+
+  // Check if current draft exists as a permanent entry in global state
+  const isExistingEntry = !!entries[selectedDateStr];
+
+  // Helper for real-time saving (keystroke / toggles on existing entries)
+  const triggerAutoSave = (
+    content: string, 
+    mood: "cream" | "off-white" | "pink", 
+    habitsCompleted: string[]
+  ) => {
+    if (isExistingEntry) {
+      setSaveStatus("saving");
+      saveEntry(selectedDateStr, {
+        content,
+        mood,
+        habitsCompleted
+      });
+      setTimeout(() => setSaveStatus("saved"), 300);
+    }
+  };
+
+  // Habit toggling inside Drawer
+  const handleToggleHabitInDrawer = (habitId: string, checked: boolean) => {
+    let updated: string[];
+    if (checked) {
+      updated = [...draftHabitsCompleted, habitId];
+    } else {
+      updated = draftHabitsCompleted.filter(id => id !== habitId);
+    }
+    setDraftHabitsCompleted(updated);
+    triggerAutoSave(draftContent, draftMood, updated);
+  };
+
+  // Mood selection inside Drawer
+  const handleSelectMoodInDrawer = (mood: "cream" | "off-white" | "pink") => {
+    setDraftMood(mood);
+    triggerAutoSave(draftContent, mood, draftHabitsCompleted);
+  };
+
+  // Textarea input changes
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setDraftContent(val);
+    triggerAutoSave(val, draftMood, draftHabitsCompleted);
+  };
+
+  // Explicit Save for NEW entries
+  const handleSaveNewEntry = () => {
+    saveEntry(selectedDateStr, {
+      content: draftContent,
+      mood: draftMood,
+      habitsCompleted: draftHabitsCompleted
+    });
+    setSaveStatus("saved");
+    setIsDrawerOpen(false);
+  };
+
+  // Reset Entry to Empty
+  const handleResetToEmpty = () => {
+    resetEntry(selectedDateStr);
+    setIsDrawerOpen(false);
+  };
+
+  // Helper to format date labels for display
+  const formatDateLabel = (dateString: string) => {
+    if (!dateString) return "";
+    const [y, m, d] = dateString.split("-").map(Number);
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString("en-US", { 
+      weekday: "long", 
+      year: "numeric", 
+      month: "long", 
+      day: "numeric" 
+    });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex flex-col lg:flex-row min-h-screen bg-[#FDFBF7] text-[#2A2421] font-sans antialiased selection:bg-[#FCE7E9]">
+      
+      {/* SIDEBAR NAVIGATION */}
+      <aside className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-[#706661]/10 bg-[#F5F2EB]/50 p-6 lg:p-8 flex flex-col gap-8 shrink-0 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-[#706661]" />
+              <h1 className="text-2xl font-serif font-bold tracking-tight text-[#2A2421]">
+                Patchwork
+              </h1>
+            </div>
+            <Show when="signed-in">
+              <UserButton />
+            </Show>
+          </div>
+          <p className="text-sm text-[#706661] leading-relaxed">
+            A quiet space to record your thoughts, track daily habits, and watch your months bloom into watercolor patches.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <Show when="signed-out">
+          <div className="flex flex-col gap-3 p-4 bg-[#FCE7E9]/40 border border-[#FCE7E9]/30 rounded-lg animate-fade-in">
+            <p className="text-xs text-[#706661] leading-relaxed">
+              Sign in to secure your daily logs and personalize your dashboard.
+            </p>
+            <div className="flex gap-2 w-full mt-1">
+              <SignInButton mode="modal">
+                <Button className="flex-1 text-xs bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/90 py-1.5 h-8 cursor-pointer">
+                  Sign In
+                </Button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <Button variant="ghost" className="flex-1 text-xs text-[#2A2421] border border-[#706661]/25 hover:bg-[#FDFBF7] py-1.5 h-8 cursor-pointer">
+                  Sign Up
+                </Button>
+              </SignUpButton>
+            </div>
+          </div>
+        </Show>
+
+        {/* HABITS MANAGEMENT PANEL */}
+        <div className="flex flex-col gap-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+            Habits Tracker
+          </h2>
+
+          <form onSubmit={handleAddHabitSubmit} className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Add new habit..."
+              value={newHabitName}
+              onChange={(e) => setNewHabitName(e.target.value)}
+              className="flex-1 bg-[#FDFBF7] border border-[#706661]/20 rounded-md py-1.5 px-3 text-sm text-[#2A2421] placeholder-[#706661]/40 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:border-transparent transition-all"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <Button 
+              type="submit" 
+              size="icon" 
+              className="bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/90 rounded-md shrink-0 w-9 h-9"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </form>
+
+          <ul className="flex flex-col gap-2 mt-2">
+            {habits.length === 0 ? (
+              <li className="text-xs text-[#706661]/60 italic font-sans py-2">
+                No habits added yet.
+              </li>
+            ) : (
+              habits.map((habit, index) => (
+                <li 
+                  key={habit.id} 
+                  className="flex items-center justify-between py-1.5 px-3 bg-[#F5F2EB] border border-[#706661]/10 rounded-md text-sm group"
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-xs font-mono text-[#706661]/50 w-4">
+                      {index + 1}.
+                    </span>
+                    <span className="truncate text-[#2A2421] font-medium font-sans">
+                      {habit.name}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => deleteHabit(habit.id)}
+                    className="opacity-0 group-hover:opacity-100 text-[#706661]/50 hover:text-red-600 transition-all focus:opacity-100 p-1"
+                    title={`Delete "${habit.name}"`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+
+        <div className="mt-auto pt-6 border-t border-[#706661]/10 hidden lg:flex flex-col gap-2">
+          <div className="flex gap-1.5 items-center">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FDFBF7] border border-[#706661]/25"></span>
+            <span className="text-xs text-[#706661]">Cream (Default Mood)</span>
+          </div>
+          <div className="flex gap-1.5 items-center">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#F5F2EB] border border-[#706661]/10"></span>
+            <span className="text-xs text-[#706661]">Off-White (Reflective)</span>
+          </div>
+          <div className="flex gap-1.5 items-center">
+            <span className="w-2.5 h-2.5 rounded-full bg-[#FCE7E9]"></span>
+            <span className="text-xs text-[#706661]">Sakura Pink (Joyful)</span>
+          </div>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 p-6 lg:p-10 flex flex-col gap-6 max-w-6xl w-full mx-auto">
+        
+        {/* CALENDAR NAVIGATION BAR */}
+        <header className="flex items-center justify-between border-b border-[#706661]/10 pb-4">
+          <div className="flex items-center gap-1">
+            <h2 className="text-2xl lg:text-3xl font-serif font-semibold text-[#2A2421]">
+              {monthLabel}
+            </h2>
+          </div>
+          
+          <div className="flex items-center gap-2 bg-[#F5F2EB]/80 border border-[#706661]/10 rounded-lg p-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handlePrevMonth}
+              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8"
+              title="Previous Month"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setCurrentDate(new Date())}
+              className="text-xs px-2.5 py-1 hover:bg-[#FDFBF7] text-[#2A2421] font-medium"
+            >
+              Today
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleNextMonth}
+              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8"
+              title="Next Month"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </header>
+
+        {/* WEEKDAYS HEADER */}
+        <div className="grid grid-cols-7 gap-1.5 md:gap-3 text-center text-xs font-semibold uppercase tracking-wider text-[#706661] pb-1 font-sans">
+          <span>Mon</span>
+          <span>Tue</span>
+          <span>Wed</span>
+          <span>Thu</span>
+          <span>Fri</span>
+          <span>Sat</span>
+          <span>Sun</span>
+        </div>
+
+        {/* CALENDAR PATCHWORK GRID */}
+        <div className="grid grid-cols-7 gap-1.5 md:gap-3 flex-1 auto-rows-fr">
+          {cells.map((cell, index) => {
+            const entry = entries[cell.dateStr];
+            
+            // Faded style for surrounding months
+            if (!cell.isActive) {
+              return (
+                <div
+                  key={`inactive-${index}`}
+                  className="aspect-square bg-[#FDFBF7]/30 border border-[#706661]/5 rounded-lg flex flex-col justify-between p-2 text-xs font-semibold text-[#706661]/30 opacity-40 select-none pointer-events-none"
+                >
+                  <span>{cell.dayNum}</span>
+                </div>
+              );
+            }
+
+            // Styling variables based on entry status & mood
+            let bgClass = "bg-[#FDFBF7] border border-dashed border-[#706661]/20 hover:border-[#706661]/40";
+            let textClass = "text-[#706661]/60";
+            
+            if (entry) {
+              if (entry.mood === "cream") {
+                bgClass = "bg-[#FDFBF7] border border-solid border-[#706661]/25 shadow-xs";
+                textClass = "text-[#2A2421]";
+              } else if (entry.mood === "off-white") {
+                bgClass = "bg-[#F5F2EB] border border-solid border-[#706661]/15 shadow-xs";
+                textClass = "text-[#2A2421]";
+              } else if (entry.mood === "pink") {
+                bgClass = "bg-[#FCE7E9] border border-solid border-[#FCE7E9]/20 shadow-xs";
+                textClass = "text-[#2A2421]";
+              }
+            }
+
+            return (
+              <div
+                key={`active-${cell.dateStr}`}
+                onClick={() => handleOpenDrawer(cell.dateStr)}
+                className={`aspect-square flex flex-col justify-between p-2 lg:p-3 rounded-lg relative cursor-pointer select-none transition-all duration-300 hover:scale-105 hover:shadow-md ${bgClass} ${textClass}`}
+              >
+                <div className="flex justify-between items-start">
+                  <span className="text-xs lg:text-sm font-semibold">{cell.dayNum}</span>
+                  {entry?.content && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#2A2421]/20"></span>
+                  )}
+                </div>
+
+                {/* Micro-Dot Matrix for Habits */}
+                <div className="flex flex-wrap gap-[3px] mt-auto w-full pt-1.5">
+                  {habits.map((habit) => {
+                    const isCompleted = entry?.habitsCompleted?.includes(habit.id);
+                    return (
+                      <div
+                        key={habit.id}
+                        className={`w-1 h-1 rounded-full shrink-0 transition-all duration-300 ${
+                          isCompleted 
+                            ? "bg-[#2A2421] scale-110" 
+                            : "border border-[#706661]/35 bg-transparent"
+                        }`}
+                        title={habit.name}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </main>
+
+      {/* EDITOR DRAWER (Radix/Shadcn Sheet) */}
+      <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+        <SheetContent 
+          side="right" 
+          className="w-full sm:max-w-md bg-[#FDFBF7] border-l border-[#706661]/10 text-[#2A2421] flex flex-col p-6 overflow-y-auto"
+        >
+          <SheetHeader className="p-0 pb-4 border-b border-[#706661]/10 gap-1">
+            <SheetTitle className="text-xl font-serif font-semibold text-[#2A2421]">
+              {isExistingEntry ? "Journal Entry" : "New Journal Entry"}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-[#706661]">
+              {formatDateLabel(selectedDateStr)}
+            </SheetDescription>
+            {saveStatus && (
+              <div className="text-[10px] text-[#706661]/70 font-mono flex items-center gap-1 mt-1 animate-fade-in">
+                {saveStatus === "saving" ? (
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#706661] animate-ping"></span>
+                ) : (
+                  <Check className="w-3.5 h-3.5 text-green-700 inline" />
+                )}
+                {saveStatus === "saving" ? "Auto-saving..." : "Saved to browser localStorage"}
+              </div>
+            )}
+          </SheetHeader>
+
+          {/* SECTION 1: HABIT TRACKER CHECKLIST */}
+          <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+              Daily Habits Checklist
+            </h3>
+            {habits.length === 0 ? (
+              <p className="text-xs text-[#706661]/50 italic py-1">
+                Add habits in the sidebar to track them here.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {habits.map((habit) => {
+                  const isChecked = draftHabitsCompleted.includes(habit.id);
+                  return (
+                    <label 
+                      key={habit.id} 
+                      className="flex items-center gap-2 text-sm text-[#2A2421] cursor-pointer bg-[#F5F2EB]/40 hover:bg-[#F5F2EB] py-1.5 px-3 rounded-md transition-all select-none border border-[#706661]/5"
+                    >
+                      <Checkbox
+                        id={`habit-${habit.id}`}
+                        checked={isChecked}
+                        onCheckedChange={(checked) => handleToggleHabitInDrawer(habit.id, !!checked)}
+                        className="border-[#706661]/40 data-checked:bg-[#2A2421] data-checked:border-[#2A2421] w-4 h-4 rounded"
+                      />
+                      <span className="truncate text-xs font-sans font-medium">
+                        {habit.name}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 2: MOOD SELECTION */}
+          <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+              Watercolour Mood Color
+            </h3>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleSelectMoodInDrawer("cream")}
+                className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border ${
+                  draftMood === "cream"
+                    ? "bg-[#FDFBF7] border-[#2A2421] border-2 shadow-xs font-semibold"
+                    : "bg-[#FDFBF7] border-[#706661]/20 hover:border-[#706661]/40"
+                }`}
+              >
+                Cream
+              </button>
+              <button
+                onClick={() => handleSelectMoodInDrawer("off-white")}
+                className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border ${
+                  draftMood === "off-white"
+                    ? "bg-[#F5F2EB] border-[#2A2421] border-2 shadow-xs font-semibold"
+                    : "bg-[#F5F2EB] border-[#706661]/15 hover:border-[#706661]/40"
+                }`}
+              >
+                Off-White
+              </button>
+              <button
+                onClick={() => handleSelectMoodInDrawer("pink")}
+                className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border ${
+                  draftMood === "pink"
+                    ? "bg-[#FCE7E9] border-[#2A2421] border-2 shadow-xs font-semibold"
+                    : "bg-[#FCE7E9] border-[#FCE7E9]/40 hover:border-transparent hover:ring-1 hover:ring-[#FCE7E9]"
+                }`}
+              >
+                Sakura Pink
+              </button>
+            </div>
+          </div>
+
+          {/* SECTION 3: TEXT EDITOR */}
+          <div className="flex-1 flex flex-col gap-3 py-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+              Journal Content
+            </h3>
+            <div className="flex-1 min-h-[200px] flex flex-col bg-[#FDFBF7]">
+              <textarea
+                ref={textareaRef}
+                placeholder="Write down your reflections, thoughts, or daily experiences..."
+                value={draftContent}
+                onChange={handleTextareaChange}
+                rows={8}
+                className="w-full flex-1 resize-none bg-transparent py-2 border-0 text-sm font-serif leading-relaxed text-[#2A2421] placeholder-[#706661]/35 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:rounded-md px-2"
+              />
+            </div>
+          </div>
+
+          {/* SECTION 4: ACTIONS */}
+          <div className="pt-4 border-t border-[#706661]/10 flex flex-col gap-3">
+            {!isExistingEntry ? (
+              <Button
+                onClick={handleSaveNewEntry}
+                className="w-full bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/95 transition-all py-2 rounded-lg text-sm font-medium font-sans"
+              >
+                Save Journal Entry
+              </Button>
+            ) : (
+              <Button
+                onClick={handleResetToEmpty}
+                variant="ghost"
+                className="w-full text-[#706661] hover:text-red-700 hover:bg-red-50/50 border border-[#706661]/10 hover:border-red-200 transition-all py-2 rounded-lg text-xs font-medium font-sans flex items-center justify-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset to Empty Cell
+              </Button>
+            )}
+          </div>
+
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
