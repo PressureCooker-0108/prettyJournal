@@ -1,0 +1,27 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model JournalEntry {
+  id      String @id @default(cuid())
+  userId  String
+  date    String
+  mood    String
+  content String
+
+  @@unique([userId, date])
+}
+
+model Habit {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String
+  completedDates String[]
+}
