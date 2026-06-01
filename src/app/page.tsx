@@ -47,6 +47,16 @@ export default function Home() {
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
 
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
   // React 19 useOptimistic configuration for habits checklist/dots
   const [optimisticHabits, setOptimisticHabits] = useOptimistic(
     habits,
@@ -126,6 +136,16 @@ export default function Home() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "">("");
+
+  // Autofocus text area when drawer opens
+  useEffect(() => {
+    if (isDrawerOpen && textareaRef.current) {
+      const t = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  }, [isDrawerOpen]);
 
   // Toast automatic dismissal
   useEffect(() => {
@@ -508,10 +528,30 @@ export default function Home() {
   );
 
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-[#FDFBF7] text-[#2A2421] font-sans antialiased selection:bg-[#FCE7E9]">
+    <div className="flex flex-col md:flex-row min-h-[100dvh] bg-[#FDFBF7] text-[#2A2421] font-sans antialiased selection:bg-[#FCE7E9] overscroll-contain">
       
-      {/* SIDEBAR NAVIGATION */}
-      <aside className="w-full lg:w-80 border-b lg:border-b-0 lg:border-r border-[#706661]/10 bg-[#F5F2EB]/50 p-6 lg:p-8 flex flex-col gap-8 shrink-0 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto">
+      {/* MOBILE HEADER - Top navigation bar for smartphone viewports */}
+      <header className="flex items-center justify-between py-3.5 px-5 bg-[#F5F2EB]/90 backdrop-blur-md border-b border-[#706661]/10 sticky top-0 z-30 md:hidden shrink-0">
+        <div className="flex items-center gap-2 select-none">
+          <BookOpen className="w-5 h-5 text-[#706661]" />
+          <span className="font-serif font-bold text-lg text-[#2A2421] tracking-tight">Patchwork</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <Show when="signed-in">
+            <UserButton />
+          </Show>
+          <Show when="signed-out">
+            <SignInButton mode="modal">
+              <button className="text-xs font-semibold bg-[#2A2421] text-[#FDFBF7] py-1.5 px-3.5 rounded-lg cursor-pointer hover:bg-[#2A2421]/90 transition-all select-none">
+                Sign In
+              </button>
+            </SignInButton>
+          </Show>
+        </div>
+      </header>
+
+      {/* DESKTOP SIDEBAR - Hidden on mobile screens */}
+      <aside className="hidden md:flex w-full md:w-80 border-b md:border-b-0 md:border-r border-[#706661]/10 bg-[#F5F2EB]/50 p-6 lg:p-8 flex-col gap-8 shrink-0 md:sticky md:top-0 md:h-[100dvh] md:overflow-y-auto">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -578,11 +618,7 @@ export default function Home() {
             <HabitSkeleton />
           ) : (
             <ul className="flex flex-col gap-2 mt-2">
-              {!isSignedIn ? (
-                <li className="text-xs text-[#706661]/50 italic font-sans py-2 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5" /> Sign in to manage habits.
-                </li>
-              ) : optimisticHabits.length === 0 ? (
+              {optimisticHabits.length === 0 ? (
                 <li className="text-xs text-[#706661]/60 italic font-sans py-2">
                   No habits added yet.
                 </li>
@@ -614,7 +650,7 @@ export default function Home() {
           )}
         </div>
 
-        <div className="mt-auto pt-6 border-t border-[#706661]/10 hidden lg:flex flex-col gap-2">
+        <div className="mt-auto pt-6 border-t border-[#706661]/10 flex flex-col gap-2">
           <div className="flex gap-1.5 items-center">
             <span className="w-2.5 h-2.5 rounded-full bg-[#FDFBF7] border border-[#706661]/25"></span>
             <span className="text-xs text-[#706661]">Cream (Default Mood)</span>
@@ -631,22 +667,20 @@ export default function Home() {
       </aside>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 p-6 lg:p-10 flex flex-col gap-6 max-w-6xl w-full mx-auto">
+      <main className="flex-grow p-4 md:p-10 flex flex-col gap-5 md:gap-6 max-w-6xl w-full mx-auto overflow-y-auto pb-24 md:pb-10 overscroll-contain">
         
         {/* CALENDAR NAVIGATION BAR */}
         <header className="flex items-center justify-between border-b border-[#706661]/10 pb-4">
-          <div className="flex items-center gap-1">
-            <h2 className="text-2xl lg:text-3xl font-serif font-semibold text-[#2A2421]">
-              {monthLabel}
-            </h2>
-          </div>
+          <h2 className="text-xl md:text-3xl font-serif font-semibold text-[#2A2421] select-none">
+            {monthLabel}
+          </h2>
           
-          <div className="flex items-center gap-2 bg-[#F5F2EB]/80 border border-[#706661]/10 rounded-lg p-1">
+          <div className="flex items-center gap-1.5 md:gap-2 bg-[#F5F2EB]/80 border border-[#706661]/10 rounded-lg p-1">
             <Button
               variant="ghost"
               size="icon"
               onClick={handlePrevMonth}
-              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8"
+              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8 cursor-pointer"
               title="Previous Month"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -654,7 +688,7 @@ export default function Home() {
             <Button
               variant="ghost"
               onClick={() => setCurrentDate(new Date())}
-              className="text-xs px-2.5 py-1 hover:bg-[#FDFBF7] text-[#2A2421] font-medium"
+              className="text-[10px] md:text-xs px-2 md:px-2.5 py-1 hover:bg-[#FDFBF7] text-[#2A2421] font-semibold cursor-pointer"
             >
               Today
             </Button>
@@ -662,7 +696,7 @@ export default function Home() {
               variant="ghost"
               size="icon"
               onClick={handleNextMonth}
-              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8"
+              className="hover:bg-[#FDFBF7] text-[#2A2421] w-8 h-8 cursor-pointer"
               title="Next Month"
             >
               <ChevronRight className="w-4 h-4" />
@@ -671,7 +705,7 @@ export default function Home() {
         </header>
 
         {/* WEEKDAYS HEADER */}
-        <div className="grid grid-cols-7 gap-1.5 md:gap-3 text-center text-xs font-semibold uppercase tracking-wider text-[#706661] pb-1 font-sans">
+        <div className="grid grid-cols-7 gap-1 md:gap-3 text-center text-[10px] md:text-xs font-semibold uppercase tracking-wider text-[#706661] pb-1 font-sans select-none">
           <span>Mon</span>
           <span>Tue</span>
           <span>Wed</span>
@@ -694,7 +728,7 @@ export default function Home() {
                 return (
                   <div
                     key={`inactive-${index}`}
-                    className="aspect-square bg-[#FDFBF7]/30 border border-[#706661]/5 rounded-lg flex flex-col justify-between p-2 text-xs font-semibold text-[#706661]/30 opacity-40 select-none pointer-events-none"
+                    className="aspect-square min-h-[48px] md:min-h-0 bg-[#FDFBF7]/30 border border-[#706661]/5 rounded-lg flex flex-col justify-between p-2 text-xs font-semibold text-[#706661]/30 opacity-40 select-none pointer-events-none"
                   >
                     <span>{cell.dayNum}</span>
                   </div>
@@ -722,7 +756,7 @@ export default function Home() {
                 <div
                   key={`active-${cell.dateStr}`}
                   onClick={() => handleOpenDrawer(cell.dateStr)}
-                  className={`aspect-square flex flex-col justify-between p-2 lg:p-3 rounded-lg relative cursor-pointer select-none transition-all duration-300 hover:scale-105 hover:shadow-md ${bgClass} ${textClass}`}
+                  className={`aspect-square min-h-[48px] md:min-h-0 flex flex-col justify-between p-2 lg:p-3 rounded-lg relative cursor-pointer select-none hover-scale-trigger ${bgClass} ${textClass}`}
                 >
                   <div className="flex justify-between items-start">
                     <span className="text-xs lg:text-sm font-semibold">{cell.dayNum}</span>
@@ -753,14 +787,81 @@ export default function Home() {
             })}
           </div>
         )}
+
+        {/* MOBILE HABITS ACCESS CONTAINER - Renders at bottom of home feed on mobile */}
+        <div className="flex flex-col gap-4 mt-6 pt-6 border-t border-[#706661]/10 md:hidden pb-12">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+            Habits Tracker
+          </h3>
+          <form onSubmit={handleAddHabitSubmit} className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Add new habit..."
+              value={newHabitName}
+              onChange={(e) => setNewHabitName(e.target.value)}
+              disabled={!isSignedIn}
+              className="flex-1 bg-[#FDFBF7] border border-[#706661]/20 rounded-md py-1.5 px-3 text-base text-[#2A2421] placeholder-[#706661]/40 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:border-transparent transition-all disabled:opacity-50"
+            />
+            <Button 
+              type="submit" 
+              size="icon" 
+              disabled={!isSignedIn}
+              className="bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/90 rounded-md shrink-0 w-10 h-10 disabled:opacity-50 cursor-pointer"
+            >
+              <Plus className="w-5 h-5" />
+            </Button>
+          </form>
+
+          {isLoadingData && isSignedIn ? (
+            <HabitSkeleton />
+          ) : (
+            <ul className="flex flex-col gap-2 mt-1">
+              {!isSignedIn ? (
+                <li className="text-xs text-[#706661]/50 italic font-sans py-2 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5" /> Sign in to manage habits.
+                </li>
+              ) : optimisticHabits.length === 0 ? (
+                <li className="text-xs text-[#706661]/60 italic font-sans py-2">
+                  No habits added yet.
+                </li>
+              ) : (
+                optimisticHabits.map((habit, index) => (
+                  <li 
+                    key={habit.id} 
+                    className="flex items-center justify-between py-2 px-3.5 bg-[#F5F2EB]/50 border border-[#706661]/10 rounded-lg text-sm select-none"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="text-xs font-mono text-[#706661]/50 w-4">
+                        {index + 1}.
+                      </span>
+                      <span className="truncate text-[#2A2421] font-medium font-sans">
+                        {habit.name}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteHabit(habit.id)}
+                      className="text-[#706661]/50 hover:text-red-600 transition-all p-1.5 cursor-pointer shrink-0"
+                      title={`Delete "${habit.name}"`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          )}
+        </div>
       </main>
 
-      {/* EDITOR DRAWER (Radix/Shadcn Sheet) */}
+      {/* EDITOR DRAWER (Responsive Bottom Sheet / Desktop Drawer) */}
       <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
         <SheetContent 
-          side="right" 
-          className="w-full sm:max-w-md bg-[#FDFBF7] border-l border-[#706661]/10 text-[#2A2421] flex flex-col p-6 overflow-y-auto"
+          side={isMobile ? "bottom" : "right"} 
+          className="w-full md:max-w-md bg-[#FDFBF7] border-t md:border-t-0 md:border-l border-[#706661]/15 text-[#2A2421] flex flex-col p-6 overflow-y-auto max-md:h-[85dvh] max-md:rounded-t-2xl max-md:border-t max-md:border-l-0 overscroll-contain"
         >
+          {/* Subtle drag handle bar at the top of the mobile sheet */}
+          <div className="w-12 h-1 bg-[#706661]/25 rounded-full mx-auto mb-2 shrink-0 md:hidden cursor-pointer" />
+
           {!isSignedIn ? (
             /* CENTERED SIGN-IN PROMPT FOR SIGNED-OUT USERS */
             <div className="flex-1 flex flex-col items-center justify-center text-center gap-6 p-4">
@@ -791,15 +892,15 @@ export default function Home() {
           ) : (
             /* AUTHENTICATED USER DRAWER CONTROLS */
             <>
-              <SheetHeader className="p-0 pb-4 border-b border-[#706661]/10 gap-1">
-                <div className="flex justify-between items-start w-full">
-                  <SheetTitle className="text-xl font-serif font-semibold text-[#2A2421]">
+              <SheetHeader className="p-0 pb-4 border-b border-[#706661]/10 gap-1 shrink-0">
+                <div className="flex justify-between items-start w-full gap-2">
+                  <SheetTitle className="text-lg md:text-xl font-serif font-semibold text-[#2A2421]">
                     {isExistingEntry ? "Journal Entry" : "New Journal Entry"}
                   </SheetTitle>
                   
                   {/* Phase 2: Debouncer Status Indicator in the corner of the drawer */}
                   {saveStatus && (
-                    <div className="text-[11px] text-[#706661]/80 font-serif flex items-center gap-1 select-none animate-fade-in bg-[#F5F2EB] px-2.5 py-1 rounded-md border border-[#706661]/10">
+                    <div className="text-[10px] md:text-[11px] text-[#706661]/80 font-serif flex items-center gap-1.5 select-none animate-fade-in bg-[#F5F2EB] px-2.5 py-1 rounded-md border border-[#706661]/10 shrink-0">
                       {saveStatus === "saving" ? (
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
                       ) : (
@@ -814,8 +915,8 @@ export default function Home() {
                 </SheetDescription>
               </SheetHeader>
 
-              {/* SECTION 1: HABIT TRACKER CHECKLIST */}
-              <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10">
+              {/* SECTION 1: HABIT TRACKER CHECKLIST - Optimized Touch Targets for Mobile */}
+              <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10 shrink-0">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
                   Daily Habits Checklist
                 </h3>
@@ -830,13 +931,13 @@ export default function Home() {
                       return (
                         <label 
                           key={habit.id} 
-                          className="flex items-center gap-2 text-sm text-[#2A2421] cursor-pointer bg-[#F5F2EB]/40 hover:bg-[#F5F2EB] py-1.5 px-3 rounded-md transition-all select-none border border-[#706661]/5"
+                          className="flex items-center gap-2.5 text-sm text-[#2A2421] cursor-pointer bg-[#F5F2EB]/40 hover:bg-[#F5F2EB] py-2.5 px-3.5 md:py-1.5 md:px-3 rounded-md transition-all select-none border border-[#706661]/5"
                         >
                           <Checkbox
                             id={`habit-${habit.id}`}
                             checked={isChecked}
                             onCheckedChange={(checked) => handleToggleHabitInDrawer(habit.id, !!checked)}
-                            className="border-[#706661]/40 data-checked:bg-[#2A2421] data-checked:border-[#2A2421] w-4 h-4 rounded cursor-pointer"
+                            className="border-[#706661]/40 data-checked:bg-[#2A2421] data-checked:border-[#2A2421] w-4.5 h-4.5 md:w-4 md:h-4 rounded cursor-pointer shrink-0"
                           />
                           <span className="truncate text-xs font-sans font-medium">
                             {habit.name}
@@ -849,14 +950,14 @@ export default function Home() {
               </div>
 
               {/* SECTION 2: MOOD SELECTION */}
-              <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10">
+              <div className="flex flex-col gap-3 py-4 border-b border-[#706661]/10 shrink-0">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
                   Watercolour Mood Color
                 </h3>
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleSelectMoodInDrawer("cream")}
-                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer ${
+                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer select-none ${
                       draftMood === "cream"
                         ? "bg-[#FDFBF7] border-[#2A2421] border-2 shadow-xs font-semibold"
                         : "bg-[#FDFBF7] border-[#706661]/20 hover:border-[#706661]/40"
@@ -866,7 +967,7 @@ export default function Home() {
                   </button>
                   <button
                     onClick={() => handleSelectMoodInDrawer("off-white")}
-                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer ${
+                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer select-none ${
                       draftMood === "off-white"
                         ? "bg-[#F5F2EB] border-[#2A2421] border-2 shadow-xs font-semibold"
                         : "bg-[#F5F2EB] border-[#706661]/15 hover:border-[#706661]/40"
@@ -876,7 +977,7 @@ export default function Home() {
                   </button>
                   <button
                     onClick={() => handleSelectMoodInDrawer("pink")}
-                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer ${
+                    className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg transition-all border cursor-pointer select-none ${
                       draftMood === "pink"
                         ? "bg-[#FCE7E9] border-[#2A2421] border-2 shadow-xs font-semibold"
                         : "bg-[#FCE7E9] border-[#FCE7E9]/40 hover:border-transparent hover:ring-1 hover:ring-[#FCE7E9]"
@@ -887,29 +988,29 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* SECTION 3: TEXT EDITOR */}
+              {/* SECTION 3: TEXT EDITOR - preventing default iOS focus zoom via text-base */}
               <div className="flex-1 flex flex-col gap-3 py-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
                   Journal Content
                 </h3>
-                <div className="flex-1 min-h-[200px] flex flex-col bg-[#FDFBF7]">
+                <div className="flex-grow min-h-[150px] flex flex-col bg-[#FDFBF7]">
                   <textarea
                     ref={textareaRef}
                     placeholder="Write down your reflections, thoughts, or daily experiences..."
                     value={draftContent}
                     onChange={handleTextareaChange}
                     rows={8}
-                    className="w-full flex-1 resize-none bg-transparent py-2 border-0 text-sm font-serif leading-relaxed text-[#2A2421] placeholder-[#706661]/35 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:rounded-md px-2"
+                    className="w-full flex-1 resize-none bg-transparent py-2 border-0 text-base md:text-sm font-serif leading-relaxed text-[#2A2421] placeholder-[#706661]/35 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:rounded-md px-2"
                   />
                 </div>
               </div>
 
               {/* SECTION 4: ACTIONS */}
-              <div className="pt-4 border-t border-[#706661]/10 flex flex-col gap-3">
+              <div className="pt-4 border-t border-[#706661]/10 flex flex-col gap-3 shrink-0">
                 {!isExistingEntry ? (
                   <Button
                     onClick={handleSaveNewEntry}
-                    className="w-full bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/95 transition-all py-2 rounded-lg text-sm font-medium font-sans cursor-pointer"
+                    className="w-full bg-[#2A2421] text-[#FDFBF7] hover:bg-[#2A2421]/95 transition-all py-2.5 rounded-lg text-sm font-medium font-sans cursor-pointer select-none"
                   >
                     Save Journal Entry
                   </Button>
@@ -917,7 +1018,7 @@ export default function Home() {
                   <Button
                     onClick={handleResetToEmpty}
                     variant="ghost"
-                    className="w-full text-[#706661] hover:text-red-700 hover:bg-red-50/50 border border-[#706661]/10 hover:border-red-200 transition-all py-2 rounded-lg text-xs font-medium font-sans flex items-center justify-center gap-1.5 cursor-pointer"
+                    className="w-full text-[#706661] hover:text-red-700 hover:bg-red-50/50 border border-[#706661]/10 hover:border-red-200 transition-all py-2.5 rounded-lg text-xs font-medium font-sans flex items-center justify-center gap-1.5 cursor-pointer select-none"
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     Reset to Empty Cell
@@ -928,6 +1029,38 @@ export default function Home() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Floating centerpiece button and Sticky Nav Bar on Mobile viewport */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-[#F5F2EB]/95 backdrop-blur-md border border-[#706661]/15 rounded-full shadow-lg py-2 px-6 flex items-center justify-between z-40 md:hidden select-none">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handlePrevMonth}
+          className="text-[#2A2421] w-10 h-10 hover:bg-[#FDFBF7]/50 rounded-full shrink-0 cursor-pointer"
+          title="Previous Month"
+        >
+          <ChevronLeft className="w-5 h-5" />
+        </Button>
+
+        {/* Centerpiece Pink Plus action button for quick thumb access */}
+        <button
+          onClick={() => handleOpenDrawer(new Date().toISOString().split("T")[0])}
+          className="w-12 h-12 rounded-full bg-[#FCE7E9] text-[#2A2421] shadow-md flex items-center justify-center hover:scale-105 transition-all cursor-pointer hover:bg-[#FCE7E9]/90 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:ring-offset-2 shrink-0 relative -top-3 border border-[#706661]/10"
+          title="New Journal Entry"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleNextMonth}
+          className="text-[#2A2421] w-10 h-10 hover:bg-[#FDFBF7]/50 rounded-full shrink-0 cursor-pointer"
+          title="Next Month"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </Button>
+      </div>
 
       {/* Floating minimalist soft toast alert container for revert notifications */}
       {toast && (
