@@ -83,7 +83,7 @@ export default function Home() {
         setHabits(fetchedHabits);
         
         const entriesRecord: Record<string, JournalEntry> = {};
-        fetchedEntries.forEach((entry) => {
+        fetchedEntries.forEach((entry: any) => {
           entriesRecord[entry.date] = {
             id: entry.id,
             userId: entry.userId,
