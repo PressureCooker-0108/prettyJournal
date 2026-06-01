@@ -393,6 +393,18 @@ export default function Home() {
             ? await encryptJournalContent(content, cryptoKey)
             : content;
 
+          // Perform local state update first before awaiting database to ensure persistent local caching
+          setEntries((prev) => ({
+            ...prev,
+            [selectedDateStr]: {
+              id: prev[selectedDateStr]?.id || "temp-id",
+              userId: "current-user",
+              date: selectedDateStr,
+              mood,
+              content: finalContent
+            }
+          }));
+
           setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: finalContent });
           const res = await upsertJournalEntry(selectedDateStr, mood, finalContent);
           if (res.success && res.data) {
