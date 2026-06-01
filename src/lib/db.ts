@@ -8,7 +8,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 // Setup WebSocket constructor for Neon (essential in Node.js serverless environment)
 if (typeof window === "undefined") {
-  neonConfig.webSocketConstructor = ws;
+  // ESM/CJS compatibility fallback to extract the constructor function
+  neonConfig.webSocketConstructor = (ws as any).default || ws;
 }
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
