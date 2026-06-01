@@ -20,9 +20,8 @@ function writeLog(level: LogLevel, message: string, context?: Record<string, any
   };
 
   if (context) {
-    // Filter out potential sensitive fields just in case (e.g., content)
     const safeContext = { ...context };
-    delete safeContext.content;
+    delete safeContext.content; // Never log sensitive journal content
     payload.context = safeContext;
   }
 
@@ -34,13 +33,13 @@ function writeLog(level: LogLevel, message: string, context?: Record<string, any
     };
   }
 
-  // Output as a structured JSON string to stdout/stderr
+  const jsonString = JSON.stringify(payload);
   if (level === "ERROR") {
-    console.error(JSON.stringify(payload));
+    console.error(jsonString);
   } else if (level === "WARN") {
-    console.warn(JSON.stringify(payload));
+    console.warn(jsonString);
   } else {
-    console.log(JSON.stringify(payload));
+    console.log(jsonString);
   }
 }
 

@@ -8,15 +8,7 @@ export const EntrySchema = z.object({
     message: "Date must be in YYYY-MM-DD format",
   }),
   mood: z.enum(["cream", "off-white", "pink"]),
-  content: z.string().transform((val) => {
-    // Simple sanitization: escape HTML tags
-    return val
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#x27;");
-  }),
+  content: z.string(),
 });
 
 export const HabitSchema = z.object({
@@ -31,4 +23,8 @@ export const ToggleHabitSchema = z.object({
   habitId: z.string().min(1, { message: "Habit ID is required" }),
   date: z.string().regex(dateRegex, { message: "Date must be YYYY-MM-DD" }),
   isCompleted: z.boolean(),
+});
+
+export const DeleteHabitSchema = z.object({
+  id: z.string().min(1, { message: "Habit ID is required" }),
 });

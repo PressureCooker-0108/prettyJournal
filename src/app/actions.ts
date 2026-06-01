@@ -2,9 +2,9 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { EntrySchema, HabitSchema, ToggleHabitSchema } from "@/lib/schemas";
+import { EntrySchema, HabitSchema, ToggleHabitSchema, DeleteHabitSchema } from "@/lib/schemas";
 import { z } from "zod";
-import { logger } from "./lib/logger";
+import { logger } from "@/lib/logger";
 
 // Helper to authenticate user and return userId
 async function requireAuth() {
@@ -150,17 +150,19 @@ export async function deleteHabitAction(id: string) {
   try {
     userId = await requireAuth();
     
-    if (!id || typeof id !== "string") {
-      return { success: false, error: "Invalid habit ID" };
+    // Zod validation
+    const parsed = DeleteHabitSchema.safeParse({ id });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0].message };
     }
-
+ 
     const data = await db.habit.deleteMany({
       where: {
-        id,
+        id: parsed.data.id,
         userId
       }
     });
-    logger.info("Successfully deleted habit", { userId, habitId: id, action: "deleteHabitAction" });
+    logger.info("Successfully deleted habit", { userId, habitId: parsed.data.id, action: "deleteHabitAction" });
     return { success: true, data };
   } catch (error: any) {
     logger.error("Error in deleteHabitAction", error, { userId, habitId: id, action: "deleteHabitAction" });

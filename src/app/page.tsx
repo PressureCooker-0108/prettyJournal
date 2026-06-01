@@ -33,6 +33,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import { useEncryption } from "@/components/EncryptionContext";
+import { encryptJournalContent, decryptJournalContent } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -320,14 +322,32 @@ export default function Home() {
     });
   };
 
+  const { cryptoKey } = useEncryption();
+
   // Open Drawer Handler for a date
-  const handleOpenDrawer = (dateStr: string) => {
+  const handleOpenDrawer = async (dateStr: string) => {
     setSelectedDateStr(dateStr);
     const existingEntry = optimisticEntries[dateStr];
     
     if (existingEntry) {
-      setDraftContent(existingEntry.content);
       setDraftMood(existingEntry.mood);
+      // Decrypt locally
+      if (cryptoKey) {
+        try {
+          // If content does not contain a colon, it might be unencrypted legacy or empty
+          if (existingEntry.content.includes(":")) {
+            const dec = await decryptJournalContent(existingEntry.content, cryptoKey);
+            setDraftContent(dec);
+          } else {
+            setDraftContent(existingEntry.content);
+          }
+        } catch (e) {
+          console.error("Decryption failed:", e);
+          setDraftContent("🔒 Decryption failed. Please check your vault passphrase.");
+        }
+      } else {
+        setDraftContent("🔒 Vault locked.");
+      }
     } else {
       setDraftContent("");
       setDraftMood("cream");
@@ -342,7 +362,7 @@ export default function Home() {
 
   // Helper for real-time debounced saving (existing entries) - 1500ms debounce
   const triggerAutoSave = (content: string, mood: "cream" | "off-white" | "pink") => {
-    if (!isExistingEntry || !isSignedIn) return;
+    if (!isExistingEntry || !isSignedIn || !cryptoKey) return;
 
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
@@ -351,9 +371,18 @@ export default function Home() {
     setSaveStatus("saving");
     debounceTimeoutRef.current = setTimeout(() => {
       startTransition(async () => {
-        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content });
+        // Enforce decryption-failed read-only state checks
+        if (content === "🔒 Decryption failed. Please check your vault passphrase.") {
+          setSaveStatus("");
+          return;
+        }
+
         try {
-          const res = await upsertJournalEntry(selectedDateStr, mood, content);
+          // Encrypt plain text with derived CryptoKey
+          const encrypted = await encryptJournalContent(content, cryptoKey);
+
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: encrypted });
+          const res = await upsertJournalEntry(selectedDateStr, mood, encrypted);
           if (res.success && res.data) {
             setEntries((prev) => ({
               ...prev,
@@ -373,7 +402,7 @@ export default function Home() {
         } catch (e) {
           console.error("Auto-save failed:", e);
           setSaveStatus("");
-          setToast({ message: "Network error: failed to auto-save", type: "error" });
+          setToast({ message: "Network or encryption error: failed to auto-save", type: "error" });
         }
       });
     }, 1500); // 1500ms debounce
@@ -409,10 +438,16 @@ export default function Home() {
   const handleSelectMoodInDrawer = async (mood: "cream" | "off-white" | "pink") => {
     setDraftMood(mood);
     
-    if (isExistingEntry && isSignedIn) {
+    if (isExistingEntry && isSignedIn && cryptoKey) {
       startTransition(async () => {
-        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: draftContent });
-        triggerAutoSave(draftContent, mood);
+        // Optimistic update uses the local plain content or keeps it, but let's send encrypted content for DB
+        try {
+          const encrypted = await encryptJournalContent(draftContent, cryptoKey);
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: encrypted });
+          triggerAutoSave(draftContent, mood);
+        } catch (e) {
+          console.error("Encryption failed:", e);
+        }
       });
     }
   };
@@ -422,22 +457,28 @@ export default function Home() {
     const val = e.target.value;
     setDraftContent(val);
     
-    if (isExistingEntry && isSignedIn) {
+    if (isExistingEntry && isSignedIn && cryptoKey) {
       startTransition(async () => {
-        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: val });
-        triggerAutoSave(val, draftMood);
+        try {
+          const encrypted = await encryptJournalContent(val, cryptoKey);
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: encrypted });
+          triggerAutoSave(val, draftMood);
+        } catch (e) {
+          console.error("Encryption failed:", e);
+        }
       });
     }
   };
 
   // Explicit Save for NEW entries
   const handleSaveNewEntry = async () => {
-    if (!isSignedIn) return;
+    if (!isSignedIn || !cryptoKey) return;
     setSaveStatus("saving");
     startTransition(async () => {
-      setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: draftContent });
       try {
-        const res = await upsertJournalEntry(selectedDateStr, draftMood, draftContent);
+        const encrypted = await encryptJournalContent(draftContent, cryptoKey);
+        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: encrypted });
+        const res = await upsertJournalEntry(selectedDateStr, draftMood, encrypted);
         if (res.success && res.data) {
           setEntries((prev) => ({
             ...prev,
@@ -996,11 +1037,12 @@ export default function Home() {
                 <div className="flex-grow min-h-[150px] flex flex-col bg-[#FDFBF7]">
                   <textarea
                     ref={textareaRef}
-                    placeholder="Write down your reflections, thoughts, or daily experiences..."
+                    disabled={!cryptoKey || draftContent === "🔒 Decryption failed. Please check your vault passphrase."}
+                    placeholder={!cryptoKey ? "Please unlock your vault to write." : "Write down your reflections, thoughts, or daily experiences..."}
                     value={draftContent}
                     onChange={handleTextareaChange}
                     rows={8}
-                    className="w-full flex-1 resize-none bg-transparent py-2 border-0 text-base md:text-sm font-serif leading-relaxed text-[#2A2421] placeholder-[#706661]/35 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:rounded-md px-2"
+                    className="w-full flex-1 resize-none bg-transparent py-2 border-0 text-base md:text-sm font-serif leading-relaxed text-[#2A2421] placeholder-[#706661]/35 focus:outline-none focus:ring-2 focus:ring-[#FCE7E9] focus:rounded-md px-2 disabled:opacity-60"
                   />
                 </div>
               </div>

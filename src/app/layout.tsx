@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Lora } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
+import { EncryptionProvider } from "@/components/EncryptionContext";
 import "./globals.css";
 
 const inter = Inter({
@@ -31,7 +32,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider appearance={{ theme: shadcn }}>
-          {children}
+          <EncryptionProvider>
+            {children}
+          </EncryptionProvider>
         </ClerkProvider>
       </body>
     </html>
