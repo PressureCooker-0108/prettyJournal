@@ -322,7 +322,7 @@ export default function Home() {
     });
   };
 
-  const { cryptoKey } = useEncryption();
+  const { cryptoKey, encryptionStatus, disableEncryption } = useEncryption();
 
   // Open Drawer Handler for a date
   const handleOpenDrawer = async (dateStr: string) => {
@@ -331,22 +331,27 @@ export default function Home() {
     
     if (existingEntry) {
       setDraftMood(existingEntry.mood);
-      // Decrypt locally
-      if (cryptoKey) {
-        try {
-          // If content does not contain a colon, it might be unencrypted legacy or empty
-          if (existingEntry.content.includes(":")) {
-            const dec = await decryptJournalContent(existingEntry.content, cryptoKey);
-            setDraftContent(dec);
-          } else {
-            setDraftContent(existingEntry.content);
+      
+      // Decrypt if encryption is enabled, otherwise use plain text directly
+      if (encryptionStatus === "enabled") {
+        if (cryptoKey) {
+          try {
+            if (existingEntry.content.includes(":")) {
+              const dec = await decryptJournalContent(existingEntry.content, cryptoKey);
+              setDraftContent(dec);
+            } else {
+              setDraftContent(existingEntry.content);
+            }
+          } catch (e) {
+            console.error("Decryption failed:", e);
+            setDraftContent("🔒 Decryption failed. Please check your vault passphrase.");
           }
-        } catch (e) {
-          console.error("Decryption failed:", e);
-          setDraftContent("🔒 Decryption failed. Please check your vault passphrase.");
+        } else {
+          setDraftContent("🔒 Vault locked.");
         }
       } else {
-        setDraftContent("🔒 Vault locked.");
+        // Plain text fallback (could be legacy encrypted too, but if E2EE disabled we display as-is)
+        setDraftContent(existingEntry.content);
       }
     } else {
       setDraftContent("");
@@ -362,7 +367,8 @@ export default function Home() {
 
   // Helper for real-time debounced saving (existing entries) - 1500ms debounce
   const triggerAutoSave = (content: string, mood: "cream" | "off-white" | "pink") => {
-    if (!isExistingEntry || !isSignedIn || !cryptoKey) return;
+    if (!isExistingEntry || !isSignedIn) return;
+    if (encryptionStatus === "enabled" && !cryptoKey) return;
 
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
@@ -378,11 +384,13 @@ export default function Home() {
         }
 
         try {
-          // Encrypt plain text with derived CryptoKey
-          const encrypted = await encryptJournalContent(content, cryptoKey);
+          // Encrypt plain text only if E2EE is enabled
+          const finalContent = encryptionStatus === "enabled" && cryptoKey
+            ? await encryptJournalContent(content, cryptoKey)
+            : content;
 
-          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: encrypted });
-          const res = await upsertJournalEntry(selectedDateStr, mood, encrypted);
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: finalContent });
+          const res = await upsertJournalEntry(selectedDateStr, mood, finalContent);
           if (res.success && res.data) {
             setEntries((prev) => ({
               ...prev,
@@ -438,12 +446,13 @@ export default function Home() {
   const handleSelectMoodInDrawer = async (mood: "cream" | "off-white" | "pink") => {
     setDraftMood(mood);
     
-    if (isExistingEntry && isSignedIn && cryptoKey) {
+    if (isExistingEntry && isSignedIn) {
       startTransition(async () => {
-        // Optimistic update uses the local plain content or keeps it, but let's send encrypted content for DB
         try {
-          const encrypted = await encryptJournalContent(draftContent, cryptoKey);
-          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: encrypted });
+          const finalContent = encryptionStatus === "enabled" && cryptoKey
+            ? await encryptJournalContent(draftContent, cryptoKey)
+            : draftContent;
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood, content: finalContent });
           triggerAutoSave(draftContent, mood);
         } catch (e) {
           console.error("Encryption failed:", e);
@@ -457,11 +466,13 @@ export default function Home() {
     const val = e.target.value;
     setDraftContent(val);
     
-    if (isExistingEntry && isSignedIn && cryptoKey) {
+    if (isExistingEntry && isSignedIn) {
       startTransition(async () => {
         try {
-          const encrypted = await encryptJournalContent(val, cryptoKey);
-          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: encrypted });
+          const finalContent = encryptionStatus === "enabled" && cryptoKey
+            ? await encryptJournalContent(val, cryptoKey)
+            : val;
+          setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: finalContent });
           triggerAutoSave(val, draftMood);
         } catch (e) {
           console.error("Encryption failed:", e);
@@ -472,13 +483,16 @@ export default function Home() {
 
   // Explicit Save for NEW entries
   const handleSaveNewEntry = async () => {
-    if (!isSignedIn || !cryptoKey) return;
+    if (!isSignedIn) return;
+    if (encryptionStatus === "enabled" && !cryptoKey) return;
     setSaveStatus("saving");
     startTransition(async () => {
       try {
-        const encrypted = await encryptJournalContent(draftContent, cryptoKey);
-        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: encrypted });
-        const res = await upsertJournalEntry(selectedDateStr, draftMood, encrypted);
+        const finalContent = encryptionStatus === "enabled" && cryptoKey
+          ? await encryptJournalContent(draftContent, cryptoKey)
+          : draftContent;
+        setOptimisticEntries({ type: "upsert", date: selectedDateStr, mood: draftMood, content: finalContent });
+        const res = await upsertJournalEntry(selectedDateStr, draftMood, finalContent);
         if (res.success && res.data) {
           setEntries((prev) => ({
             ...prev,
@@ -704,6 +718,44 @@ export default function Home() {
             <span className="w-2.5 h-2.5 rounded-full bg-[#FCE7E9]"></span>
             <span className="text-xs text-[#706661]">Sakura Pink (Joyful)</span>
           </div>
+
+          {/* Encryption status configuration button in Sidebar */}
+          {isSignedIn && (
+            <div className="mt-4 p-3 bg-[#F5F2EB] border border-[#706661]/10 rounded-lg text-xs flex flex-col gap-2">
+              <div className="font-semibold flex items-center justify-between text-[#2A2421]">
+                <span>Vault Security:</span>
+                <span className={encryptionStatus === "enabled" ? "text-green-700 font-bold" : "text-neutral-500 font-medium"}>
+                  {encryptionStatus === "enabled" ? "🔒 Encrypted" : "🔓 Plain Text"}
+                </span>
+              </div>
+              {encryptionStatus === "disabled" ? (
+                <button
+                  onClick={() => {
+                    const pass = prompt("Choose a private passphrase to secure your vault:");
+                    if (pass) {
+                      useEncryption().enableEncryption(pass).then((success) => {
+                        if (success) alert("End-to-End Encryption enabled successfully!");
+                      });
+                    }
+                  }}
+                  className="w-full text-center py-1.5 bg-[#E08D93] text-white rounded font-medium hover:bg-[#D57B82] cursor-pointer"
+                >
+                  Enable E2EE
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (confirm("Are you sure you want to disable E2EE? Your vault will save new entries in plain text, but existing encrypted entries will remain encrypted until manually re-saved.")) {
+                      disableEncryption();
+                    }
+                  }}
+                  className="w-full text-center py-1.5 border border-[#706661]/25 text-[#706661] rounded hover:bg-[#FDFBF7] cursor-pointer"
+                >
+                  Switch to Plain Text
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </aside>
 
@@ -1037,8 +1089,8 @@ export default function Home() {
                 <div className="flex-grow min-h-[150px] flex flex-col bg-[#FDFBF7]">
                   <textarea
                     ref={textareaRef}
-                    disabled={!cryptoKey || draftContent === "🔒 Decryption failed. Please check your vault passphrase."}
-                    placeholder={!cryptoKey ? "Please unlock your vault to write." : "Write down your reflections, thoughts, or daily experiences..."}
+                    disabled={encryptionStatus === "enabled" && (!cryptoKey || draftContent === "🔒 Decryption failed. Please check your vault passphrase.")}
+                    placeholder={encryptionStatus === "enabled" && !cryptoKey ? "Please unlock your vault to write." : "Write down your reflections, thoughts, or daily experiences..."}
                     value={draftContent}
                     onChange={handleTextareaChange}
                     rows={8}
