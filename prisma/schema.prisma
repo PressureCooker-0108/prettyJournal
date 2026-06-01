@@ -25,3 +25,11 @@ model Habit {
   name           String
   completedDates String[]
 }
+
+model UserPreferences {
+  id         String @id @default(cuid())
+  userId     String @unique
+  canvas     String @default("cream")
+  ink        String @default("espresso")
+  typography String @default("novelist")
+}

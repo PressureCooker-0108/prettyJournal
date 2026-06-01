@@ -35,6 +35,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
 import { useEncryption } from "@/components/EncryptionContext";
 import { encryptJournalContent, decryptJournalContent } from "@/lib/crypto";
+import { useTheme } from "@/components/ThemeProvider";
+import { Paintbrush } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +131,7 @@ export default function Home() {
   // Editor Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedDateStr, setSelectedDateStr] = useState<string>("");
+  const [isCustomizerOpen, setIsCustomizerOpen] = useState(false);
   
   // Drawer draft state (used only for new entries before clicking "Save")
   const [draftContent, setDraftContent] = useState("");
@@ -323,6 +326,7 @@ export default function Home() {
   };
 
   const { cryptoKey, encryptionStatus, disableEncryption } = useEncryption();
+  const { preferences, updatePreference } = useTheme();
 
   // Open Drawer Handler for a date
   const handleOpenDrawer = async (dateStr: string) => {
@@ -592,6 +596,13 @@ export default function Home() {
           <span className="font-serif font-bold text-lg text-[#2A2421] tracking-tight">Patchwork</span>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsCustomizerOpen(true)}
+            className="p-2 hover:bg-[#FDFBF7] rounded-lg transition-all text-[#706661] hover:text-[#2A2421] cursor-pointer"
+            title="Stationery Options"
+          >
+            <Paintbrush className="w-4.5 h-4.5" />
+          </button>
           <Show when="signed-in">
             <UserButton />
           </Show>
@@ -615,9 +626,18 @@ export default function Home() {
                 Patchwork
               </h1>
             </div>
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsCustomizerOpen(true)}
+                className="p-1.5 hover:bg-[#FDFBF7] rounded-lg transition-all text-[#706661] hover:text-[#2A2421] cursor-pointer"
+                title="Stationery Options"
+              >
+                <Paintbrush className="w-4 h-4" />
+              </button>
+              <Show when="signed-in">
+                <UserButton />
+              </Show>
+            </div>
           </div>
           <p className="text-sm text-[#706661] leading-relaxed">
             A quiet space to record your thoughts, track daily habits, and watch your months bloom into watercolor patches.
@@ -1155,6 +1175,137 @@ export default function Home() {
           <ChevronRight className="w-5 h-5" />
         </Button>
       </div>
+
+      {/* Stationery Options Customizer Drawer */}
+      <Sheet open={isCustomizerOpen} onOpenChange={setIsCustomizerOpen}>
+        <SheetContent 
+          side={isMobile ? "bottom" : "right"} 
+          className="bg-[#FDFBF7] text-[#2A2421] border-[#706661]/10 flex flex-col h-[75vh] md:h-full max-h-[90vh] md:max-h-full rounded-t-2xl md:rounded-l-2xl md:rounded-tr-none px-6 py-6 overflow-y-auto"
+        >
+          {isMobile && (
+            <div className="mx-auto w-12 h-1.5 rounded-full bg-[#706661]/15 mb-2 shrink-0 select-none" />
+          )}
+
+          <SheetHeader className="p-0 pb-4 border-b border-[#706661]/10 gap-1 shrink-0">
+            <SheetTitle className="text-lg md:text-xl font-serif font-semibold text-[#2A2421]">
+              Stationery Options
+            </SheetTitle>
+            <SheetDescription className="text-xs text-[#706661]">
+              Customize your canvas background stock, ink tones, and typography styles.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 flex flex-col gap-6 py-6">
+            {/* PAPER STOCK THEME SELECTION */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+                Paper Stock
+              </h3>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => updatePreference("canvas", "cream")}
+                  className={`flex flex-col items-center gap-1.5 cursor-pointer focus:outline-none`}
+                >
+                  <div className={`w-10 h-10 rounded-full bg-[#FDFBF7] border-2 transition-all ${preferences.canvas === "cream" ? "border-[#2A2421] ring-2 ring-[#FCE7E9]" : "border-[#706661]/10"}`} />
+                  <span className="text-[10px] font-sans font-medium text-[#706661]">Cream</span>
+                </button>
+
+                <button
+                  onClick={() => updatePreference("canvas", "sage")}
+                  className={`flex flex-col items-center gap-1.5 cursor-pointer focus:outline-none`}
+                >
+                  <div className={`w-10 h-10 rounded-full bg-[#F4F6F0] border-2 transition-all ${preferences.canvas === "sage" ? "border-[#2A2421] ring-2 ring-[#EAEFE2]" : "border-[#706661]/10"}`} />
+                  <span className="text-[10px] font-sans font-medium text-[#706661]">Sage</span>
+                </button>
+
+                <button
+                  onClick={() => updatePreference("canvas", "lavender")}
+                  className={`flex flex-col items-center gap-1.5 cursor-pointer focus:outline-none`}
+                >
+                  <div className={`w-10 h-10 rounded-full bg-[#F7F5F8] border-2 transition-all ${preferences.canvas === "lavender" ? "border-[#2A2421] ring-2 ring-[#EFEAEF]" : "border-[#706661]/10"}`} />
+                  <span className="text-[10px] font-sans font-medium text-[#706661]">Lavender</span>
+                </button>
+              </div>
+            </div>
+
+            {/* INK TONES SELECTION */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+                Ink Tones
+              </h3>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => updatePreference("ink", "espresso")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between ${
+                    preferences.ink === "espresso" ? "bg-[#2A2421]/5 border-[#2A2421] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span style={{ color: "#2A2421" }}>Espresso Brown</span>
+                  {preferences.ink === "espresso" && <Check className="w-3.5 h-3.5 text-[#2A2421]" />}
+                </button>
+
+                <button
+                  onClick={() => updatePreference("ink", "slate")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between ${
+                    preferences.ink === "slate" ? "bg-[#2C302E]/5 border-[#2C302E] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span style={{ color: "#2C302E" }}>Slate Charcoal</span>
+                  {preferences.ink === "slate" && <Check className="w-3.5 h-3.5 text-[#2C302E]" />}
+                </button>
+
+                <button
+                  onClick={() => updatePreference("ink", "plum")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between ${
+                    preferences.ink === "plum" ? "bg-[#2E272F]/5 border-[#2E272F] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span style={{ color: "#2E272F" }}>Muted Plum</span>
+                  {preferences.ink === "plum" && <Check className="w-3.5 h-3.5 text-[#2E272F]" />}
+                </button>
+              </div>
+            </div>
+
+            {/* TYPOGRAPHY SELECTION */}
+            <div className="flex flex-col gap-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#706661] font-sans">
+                Typography Type
+              </h3>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => updatePreference("typography", "novelist")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between font-serif ${
+                    preferences.typography === "novelist" ? "bg-black/5 border-[#2A2421] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span>Novelist (Lora & Inter)</span>
+                  {preferences.typography === "novelist" && <Check className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={() => updatePreference("typography", "modernist")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between font-sans ${
+                    preferences.typography === "modernist" ? "bg-black/5 border-[#2A2421] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span>Modernist (Jakarta Sans)</span>
+                  {preferences.typography === "modernist" && <Check className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={() => updatePreference("typography", "logbook")}
+                  className={`w-full text-left py-2 px-3 text-xs font-medium rounded-lg border transition-all cursor-pointer select-none flex items-center justify-between font-mono ${
+                    preferences.typography === "logbook" ? "bg-black/5 border-[#2A2421] font-semibold" : "bg-transparent border-[#706661]/15"
+                  }`}
+                >
+                  <span>Logbook (Monospace)</span>
+                  {preferences.typography === "logbook" && <Check className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Floating minimalist soft toast alert container for revert notifications */}
       {toast && (

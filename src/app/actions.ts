@@ -2,7 +2,7 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { EntrySchema, HabitSchema, ToggleHabitSchema, DeleteHabitSchema } from "@/lib/schemas";
+import { EntrySchema, HabitSchema, ToggleHabitSchema, DeleteHabitSchema, ThemePreferencesSchema } from "@/lib/schemas";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
 
@@ -216,5 +216,61 @@ export async function toggleHabitCompletionAction(
   } catch (error: any) {
     logger.error("Error in toggleHabitCompletionAction", error, { userId, habitId, date, isCompleted, action: "toggleHabitCompletionAction" });
     return { success: false, error: error.message || "Failed to toggle habit" };
+  }
+}
+
+// Fetch user theme preferences
+export async function getUserPreferences() {
+  let userId: string | undefined;
+  try {
+    userId = await requireAuth();
+    const prefs = await db.userPreferences.findUnique({
+      where: { userId }
+    });
+    return { success: true, data: prefs };
+  } catch (error: any) {
+    logger.error("Error in getUserPreferences", error, { userId, action: "getUserPreferences" });
+    return { success: false, error: error.message || "Failed to load preferences" };
+  }
+}
+
+// Save user theme preferences
+export async function saveUserPreferences(prefs: {
+  canvas: "cream" | "sage" | "lavender";
+  ink: "espresso" | "slate" | "plum";
+  typography: "novelist" | "modernist" | "logbook";
+}) {
+  let userId: string | undefined;
+  try {
+    userId = await requireAuth();
+    
+    // Zod validation
+    const parsed = ThemePreferencesSchema.safeParse(prefs);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues.map(e => e.message).join(", ") };
+    }
+    
+    const validated = parsed.data;
+    
+    const data = await db.userPreferences.upsert({
+      where: { userId },
+      update: {
+        canvas: validated.canvas,
+        ink: validated.ink,
+        typography: validated.typography,
+      },
+      create: {
+        userId,
+        canvas: validated.canvas,
+        ink: validated.ink,
+        typography: validated.typography,
+      }
+    });
+    
+    logger.info("Successfully saved user preferences", { userId, canvas: validated.canvas, ink: validated.ink, typography: validated.typography, action: "saveUserPreferences" });
+    return { success: true, data };
+  } catch (error: any) {
+    logger.error("Error in saveUserPreferences", error, { userId, canvas: prefs?.canvas, ink: prefs?.ink, typography: prefs?.typography, action: "saveUserPreferences" });
+    return { success: false, error: error.message || "Failed to save preferences" };
   }
 }

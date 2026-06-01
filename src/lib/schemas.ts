@@ -28,3 +28,9 @@ export const ToggleHabitSchema = z.object({
 export const DeleteHabitSchema = z.object({
   id: z.string().min(1, { message: "Habit ID is required" }),
 });
+
+export const ThemePreferencesSchema = z.object({
+  canvas: z.enum(["cream", "sage", "lavender"]),
+  ink: z.enum(["espresso", "slate", "plum"]),
+  typography: z.enum(["novelist", "modernist", "logbook"]),
+});
